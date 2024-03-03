@@ -1,0 +1,271 @@
+{
+    "definition": {
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "actions": {
+            "Add_comment_to_incident_(V3)": {
+                "inputs": {
+                    "body": {
+                        "incidentArmId": "@triggerBody()?['object']?['id']",
+                        "message": "<p>Blocked @{body('Parse_JSON')?['SourceIP']} on CheckPoint firewall.</p>"
+                    },
+                    "host": {
+                        "connection": {
+                            "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                        }
+                    },
+                    "method": "post",
+                    "path": "/Incidents/Comment"
+                },
+                "runAfter": {
+                    "Create_job": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "ApiConnection"
+            },
+            "Compose": {
+                "inputs": "@variables('alert_data')",
+                "runAfter": {
+                    "For_each_alert": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "Compose"
+            },
+            "Create_job": {
+                "inputs": {
+                    "body": {
+                        "properties": {
+                            "parameters": {
+                                "[Parameter 1]": "@{body('Parse_JSON')?['SourceIP']}",
+                                "[Parameter 2]": "[Directory of the blocklist feed files]",
+                                "[Parameter 3]": "[Directory of the blocklist database/pickle]",
+                                "[Parameter 4]": "[Blocklist name]",
+                                "[Parameter 5]": "[Your Service account to own the blocklist files]",
+                                "[Parameter 6]": "[Your Gateway Names]",
+                                "[Parameter 7]": "[Your user account to SSH to the gateway]"
+                            },
+                            "runOn": "[Your Hybrid Worker Name]"
+                        }
+                    },
+                    "host": {
+                        "connection": {
+                            "name": "@parameters('$connections')['azureautomation']['connectionId']"
+                        }
+                    },
+                    "method": "put",
+                    "path": "[Custom to your environment]",
+                    "queries": {
+                        "runbookName": "[Custom to your environment]",
+                        "wait": true,
+                        "x-ms-api-version": "2015-10-31"
+                    }
+                },
+                "runAfter": {
+                    "Parse_JSON": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "ApiConnection"
+            },
+            "Execute_JavaScript_Code": {
+                "inputs": {
+                    "code": "// Process the alert data and remove internal or owned IPs\r\nfunction isIPInRange(ip, base, mask) {\r\n    const [ipA, ipB, ipC, ipD] = ip.split('.').map(Number);\r\n    const [baseA, baseB, baseC, baseD] = base.split('.').map(Number);\r\n    const ipBinary = (ipA << 24) + (ipB << 16) + (ipC << 8) + ipD;\r\n    const baseBinary = (baseA << 24) + (baseB << 16) + (baseC << 8) + baseD;\r\n    return (ipBinary & (-1 << (32 - mask))) === baseBinary;\r\n}\r\nfunction isPrivateOrSpecifiedIP(ip) {\r\n    // Check for private IP ranges\r\n    if (isIPInRange(ip, \"10.0.0.0\", 8) ||\r\n        isIPInRange(ip, \"172.16.0.0\", 12) ||\r\n        isIPInRange(ip, \"192.168.0.0\", 16)) {\r\n        return true;\r\n    }\r\n    return false;\r\n}\r\nlet alert = workflowContext.actions['Compose']['outputs'][0]['value'][0];\r\nif (isPrivateOrSpecifiedIP(alert['SourceIP'])) {\r\n    return null;\r\n}\r\nreturn alert;",                    "explicitDependencies": {
+                        "actions": [
+                            "Compose"
+                        ]
+                    }
+                },
+                "runAfter": {
+                    "Compose": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "JavaScriptCode"
+            },
+            "For_each_alert": {
+                "actions": {
+                    "Append_to_array_variable": {
+                        "inputs": {
+                            "name": "alert_data",
+                            "value": "@body('Run_query_and_list_results')"
+                        },
+                        "runAfter": {
+                            "Run_query_and_list_results": [
+                                "Succeeded"
+                            ]
+                        },
+                        "type": "AppendToArrayVariable"
+                    },
+                    "Run_query_and_list_results": {
+                        "inputs": {
+                            "body": "@items('For_each_alert')?['properties']?['additionalData']?['Query']",
+                            "host": {
+                                "connection": {
+                                    "name": "@parameters('$connections')['azuremonitorlogs']['connectionId']"
+                                }
+                            },
+                            "method": "post",
+                            "path": "/queryData",
+                            "queries": {
+                                "resourcegroups": "[Custom to your environment]",
+                                "resourcename": "[Custom to your environment]",
+                                "resourcetype": "Log Analytics Workspace",
+                                "subscriptions": "[Custom to your environment]",
+                                "timerange": "1d"
+                            }
+                        },
+                        "runAfter": {},
+                        "type": "ApiConnection"
+                    }
+                },
+                "foreach": "@triggerBody()?['object']?['properties']?['Alerts']",
+                "runAfter": {
+                    "Initialize_alert_data": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "Foreach"
+            },
+            "Initialize_alert_data": {
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "alert_data",
+                            "type": "array"
+                        }
+                    ]
+                },
+                "runAfter": {},
+                "type": "InitializeVariable"
+            },
+            "Parse_JSON": {
+                "inputs": {
+                    "content": "@body('Execute_JavaScript_Code')",
+                    "schema": {
+                        "properties": {
+                            "Activity": {
+                                "type": "string"
+                            },
+                            "DestinationIP": {
+                                "type": "string"
+                            },
+                            "DestinationPort": {
+                                "type": "integer"
+                            },
+                            "Message": {
+                                "type": "string"
+                            },
+                            "ProtectionID": {
+                                "type": "string"
+                            },
+                            "RequestURL": {
+                                "type": "string"
+                            },
+                            "SourceIP": {
+                                "type": "string"
+                            },
+                            "TimeGenerated": {
+                                "type": "string"
+                            }
+                        },
+                        "type": "object"
+                    }
+                },
+                "runAfter": {
+                    "Execute_JavaScript_Code": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "ParseJson"
+            },
+            "Update_incident": {
+                "inputs": {
+                    "body": {
+                        "incidentArmId": "@triggerBody()?['object']?['id']",
+                        "tagsToAdd": {
+                            "TagsToAdd": [
+                                {
+                                    "Tag": "checkpoint-ip-block"
+                                }
+                            ]
+                        }
+                    },
+                    "host": {
+                        "connection": {
+                            "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                        }
+                    },
+                    "method": "put",
+                    "path": "/Incidents"
+                },
+                "runAfter": {
+                    "Add_comment_to_incident_(V3)": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "ApiConnection"
+            }
+        },
+        "contentVersion": "1.0.0.0",
+        "outputs": {},
+        "parameters": {
+            "$connections": {
+                "defaultValue": {},
+                "type": "Object"
+            }
+        },
+        "triggers": {
+            "Microsoft_Sentinel_incident": {
+                "inputs": {
+                    "body": {
+                        "callback_url": "@{listCallbackUrl()}"
+                    },
+                    "host": {
+                        "connection": {
+                            "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                        }
+                    },
+                    "path": "/incident-creation"
+                },
+                "type": "ApiConnectionWebhook"
+            }
+        }
+    },
+    "parameters": {
+        "$connections": {
+            "value": {
+                "azureautomation": {
+                    "connectionId": "[Custom to your environment]",
+                    "connectionName": "[Custom to your environment]",
+                    "connectionProperties": {
+                        "authentication": {
+                            "type": "ManagedServiceIdentity"
+                        }
+                    },
+                    "id": "[Custom to your environment]"
+                },
+                "azuremonitorlogs": {
+                    "connectionId": "[Custom to your environment]",
+                    "connectionName": "[Custom to your environment]",
+                    "connectionProperties": {
+                        "authentication": {
+                            "type": "ManagedServiceIdentity"
+                        }
+                    },
+                    "id": "[Custom to your environment]"
+                },
+                "azuresentinel": {
+                    "connectionId": "[Custom to your environment]",
+                    "connectionName": "[Custom to your environment]",
+                    "connectionProperties": {
+                        "authentication": {
+                            "type": "ManagedServiceIdentity"
+                        }
+                    },
+                    "id": "[Custom to your environment]"
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,29 @@
+{
+    "properties": {
+        "Activity": {
+            "type": "string"
+        },
+        "DestinationIP": {
+            "type": "string"
+        },
+        "DestinationPort": {
+            "type": "integer"
+        },
+        "Message": {
+            "type": "string"
+        },
+        "ProtectionID": {
+            "type": "string"
+        },
+        "RequestURL": {
+            "type": "string"
+        },
+        "SourceIP": {
+            "type": "string"
+        },
+        "TimeGenerated": {
+            "type": "string"
+        }
+    },
+    "type": "object"
+}
